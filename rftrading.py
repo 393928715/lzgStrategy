@@ -49,35 +49,40 @@ class RF_TradingMonitor:
     #获取所有交易时间   
     def getAllTrdingDate(self,startDate,endDate):
         
-        tdir =  self.tdir
-        #生成目录字典
-        tdirdf =pd.read_table(tdir.decode('utf-8'))
+        #startDate=datetime.strptime(startDate, "%Y-%m-%d").date()
+        #endDate=datetime.strptime(endDate, "%Y-%m-%d") .date()
         
-        allTimedf  = tdirdf[(tdirdf.Time>=startDate)&(tdirdf.Time<=endDate)]
+        #生成目录字典
+        sh_data=ts.get_hist_data('sh')
+        
+        sh_data=sh_data[(sh_data.index>startDate)&(sh_data.index<endDate)]
+        
+        sh_data.reset_index(inplace=True)
+
+        allTimedf =sh_data['date']
+        
+        print allTimedf
         
         return allTimedf
              
     def getNewDate(self,start_date,dayoffset):
         
-        startDate = start_date.strftime('%Y-%m-%d')
+        #startDate = datetime.strptime(start_date, "%Y-%m-%d")  
+        sh_data=ts.get_hist_data('sh')
         
-        tdir =  self.tdir
-        #生成目录字典
-        tdirdf =pd.read_table(tdir.decode('utf-8'))
-               
-        allTimedf  = tdirdf[(tdirdf.Time<=startDate)]
+        sh_data=sh_data[(sh_data.index<=start_date)]
         
-        #取出list，获取前6天数据
-        
-        timelist  = allTimedf['Time'].tolist()
+        sh_data.reset_index(inplace=True)
+
+        timelist =sh_data['date']     
         
         newdate   = start_date
         
         if len(timelist)>dayoffset:
            
-           startDate =  timelist[-dayoffset] 
+           newdate =  timelist[dayoffset] 
            
-           newdate = datetime.strptime(startDate, "%Y-%m-%d")
+           #newdate = datetime.strptime(start_date, "%Y-%m-%d")
         
         return newdate
                
@@ -157,7 +162,7 @@ class RF_TradingMonitor:
         
         if len(allTimedf)>0:
             
-            allTimelist = list(allTimedf['Time'])
+            allTimelist = list(allTimedf)
             
             #获取每天融资融券数据
             for atl in  allTimelist:
@@ -356,20 +361,17 @@ class RF_TradingMonitor:
 
     #最终调用 atr_30，atr_200用于atr指标
     #最终调用 rzye30_df，rzye200_df用于融资融券指标
-    def getTrading(self,sdate="2017-06-26",edate="2017-06-30",marginflag = False):
+    def getTrading(self,sdate,edate,marginflag):
           
         #ATR指标
-        start_date = datetime.strptime("2017-06-23", "%Y-%m-%d")
-        
-        end_date = datetime.strptime("2017-06-30", "%Y-%m-%d")
          
-        newdate   = self.getNewDate(start_date,6)
+        newdate   = self.getNewDate(sdate,6)
         
             
         #获取所有股票数据
         rfcodestr = '>=000001 '
         
-        rfall_atr = self.getStockData(rfcodestr,newdate,end_date,'D')
+        rfall_atr = self.getStockData(rfcodestr,newdate,edate,'D')
         
         atrall_colunms = list(rfall_atr.columns)
         
@@ -387,22 +389,22 @@ class RF_TradingMonitor:
                
         # 处理融资余额
         
-        startDate = start_date.strftime('%Y-%m-%d')
-        
-        endDate   = end_date.strftime('%Y-%m-%d')
+#        startDate = start_date.strftime('%Y-%m-%d')
+#        
+#        endDate   = end_date.strftime('%Y-%m-%d')
         
         #self.get_SH_Margins(startDate,endDate,rf30codestr)
         
-        if marginflag:
-           self.dealMarginData(startDate,endDate)
+        if marginflag==True:
+           self.dealMarginData(sdate,edate)
             
         #处理上海融资融券数据
             
-        shrzye_df  = self.get_SH_Margins(startDate,endDate)
+        shrzye_df  = self.get_SH_Margins(sdate,edate)
              
        #处理深圳融资融券数据
         
-        szrzye_df  = self.get_SZ_Margins(startDate,endDate)
+        szrzye_df  = self.get_SZ_Margins(sdate,edate)
     
         #计算所有融资余额
         szrzye_group  = szrzye_df.groupby('mt_code')
@@ -448,7 +450,7 @@ class RF_TradingMonitor:
         rzye_df.rename(columns={'mt_code': 'hq_code'}, inplace=True)
         
         #获取30,200标的的数据
-        c=colligation.ZH()
+        c=colligation.ZH(sdate,edate)
         
         rzye30_df=c.getRF(30,rzye_df)   
         rzye200_df=c.getRF(200,rzye_df)    
@@ -459,7 +461,10 @@ class RF_TradingMonitor:
         return rzye200_df,rzye30_df,atr_200,atr_30,rzye_df,atr_all
 
 if '__main__'==__name__:  
-    pass
+    c=RF_TradingMonitor()
+    c.getTrading('2017-07-07','2017-07-14',0)
+
+
     
 
      

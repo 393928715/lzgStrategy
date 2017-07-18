@@ -39,18 +39,37 @@ class ZH():
         
         self.engine=create_engine('mysql://root:lzg000@127.0.0.1/stocksystem?charset=utf8')
       
-        #定义时间周期        
-        self.tstartdate=datetime.datetime.strptime(sdate, "%Y-%m-%d")  
-
-        self.tenddate=datetime.datetime.strptime(edate, "%Y-%m-%d")  
+        #定义时间周期   
+#        if ' ' not in sdate:     
+#            self.tstartdate=datetime.datetime.strptime(sdate, "%Y-%m-%d")  
+#        else:
+#            self.tstartdate=datetime.datetime.strptime(sdate, "%Y-%m-%d %H:%M")
+#
+#        if ' 'not in edate:   
+#            self.tenddate=datetime.datetime.strptime(edate, "%Y-%m-%d")  
+#        else:
+#            self.tenddate=datetime.datetime.strptime(edate, "%Y-%m-%d %H:%M")
+      
+        if ' ' in sdate: 
+            self.tstartdate=sdate
+            self.tenddate=edate
+        else:
+            self.tstartdate=sdate+' 00:00'
+            self.tenddate=edate+' 15:00'
         
         self.mktindex = MktIndexHandle()
         
         self.mktstock = MktStockHandle()
         
-        self.rf30=self.getCode(u'E:\\工作\\标的\\30.txt')
+        self.rf30file=u'E:\\工作\\标的\\30.txt'
+        
+        self.rf200file=u'E:\\工作\\标的\\200.txt'
+        
+        self.rf30=self.getCode(self.rf30file)
 
-        self.rf200=self.getCode(u'E:\\工作\\标的\\200.txt')
+        self.rf200=self.getCode(self.rf200file)
+        
+        self.stocBoardFile=u'E:\\股票数据\\股票细分板块\\allboard.txt'
         
         self.stockNames=pd.read_sql_table('stockinfo',con=self.engine,schema='stocksystem',index_col='stock_code',columns=['stock_code','stock_name'])    
         
@@ -139,8 +158,9 @@ class ZH():
     
     #获取股票代码对应名称
     def getStockNames(self,df_stock,stockNames):
-
-        df_stock.index=df_stock['hq_code']
+        
+        if 'hq_code' in df_stock.columns:     
+            df_stock.index=df_stock['hq_code']
         df_stock['hq_name']=stockNames['stock_name']
         return df_stock['hq_name']
     
@@ -156,27 +176,63 @@ class ZH():
         
         df_stock.index=df_stock.hq_code
         stockrelated.index=stockrelated.stock_id
-        df_stock['board_name']=stockrelated['board_name']
-        return  df_stock['board_name']
+        stockrelated['board_name']
+        return  stockrelated['board_name']
     
     #得到标的代码
     def getCode(self,fname):
-        s1=pd.read_table(fname,usecols=[0],dtype=str)
+        try:
+            s1=pd.read_table(fname,usecols=[0],dtype=str,encoding='utf-8')
+        except:
+            s1=pd.read_table(fname,usecols=[0],dtype=str,encoding='gbk')
+        
+        s1.columns=['code']
                 
         codelist=s1['code'].astype('int')
         
         return codelist 
     
-    #得到标的数据
-    def getRF(self,name,df_stock):
+    #得到标的细分行业
+    def getBoard(self,rfname,df_stock):
+        if rfname==200:
+            s1=pd.read_table(self.rf200file,index_col=0,usecols=[0,18],dtype=str,encoding='gbk')
+        elif rfname==30:
+            s1=pd.read_table(self.rf30file,index_col=0,usecols=[0,18],dtype=str,encoding='gbk')
+        elif rfname==3000:
+            s1=pd.read_table(self.stocBoardFile,usecols=[0,18],dtype={'代码':int,'细分行业':str},index_col=0,encoding='gbk')
+        
+        s1.columns=['board_name']
+        
+        #如果数据含有列'hq_code',就把code设为索引，否则需要索引为code
+        if 'hq_code' in df_stock.columns:
+            df_stock.index=df_stock.hq_code
+            
+        df_stock['board_name']=s1['board_name']
+        
+        return df_stock
+        
+    #得到标的数据,要穿一个hq_code列
+    def getRF(self,name,df_stock,boardFlag=0):
         if name==30:      
             codelist=self.rf30
         else:
             codelist=self.rf200
+        
+        if 'hq_code' in df_stock.columns:        
+            df_stock['cFlag']=df_stock['hq_code'].isin(codelist)        
+            df_stock200=df_stock[df_stock['cFlag']]  
+        else:
+            df_stock['cFlag']=df_stock.index.isin(codelist)        
+            df_stock200=df_stock[df_stock['cFlag']]             
+  
+        if boardFlag!=0:
+            if 'hq_code' in df_stock.columns: 
+                df_stock200.set_index('hq_code',inplace=True)
+
+            df_stock200=self.getBoard(name,df_stock200)
             
-        df_stock['cFlag']=df_stock['hq_code'].isin(codelist)        
-        df_stock200=df_stock[df_stock['cFlag']]  
-        del df_stock200['cFlag']    
+        del df_stock200['cFlag'],df_stock['cFlag']   
+        
         return df_stock200       
     
     #复权
@@ -200,7 +256,18 @@ class ZH():
             #用复权后的数据覆盖原数据             
             df_stock[df_stock.hq_code==code]=stockData  
         return df_stock
-        
+
+    def getZqChg(self,x):
+        _open=x['hq_close'].iat[0]
+        _close=x['hq_close'].iat[-1]
+        diff=_close-_open
+        try:
+            chgper=diff/_open
+            x['chgper']=chgper
+            return x.tail(1)
+        except Exception as e:
+            print e       
+            print x.name        
     
     def getDayData(self):
         #获取每日数据
@@ -238,8 +305,8 @@ class ZH():
     
     def get5minData(self):
         
-        #因为涨幅只能从起始日的后一天开始算，为了对齐数据，把特立独行的起始日延后一天
-        tstartdate=self.tstartdate+datetime.timedelta(1)        
+        tstartdate=self.tstartdate
+        
         #取得5分钟级别数据
         df_dapan =self.mktindex.MktIndexBarHistDataGet('=399317',sDate_Start=tstartdate,sDate_End=self.tenddate,speriod='5M') 
         
@@ -248,7 +315,42 @@ class ZH():
         df_stock= self.mktstock.MktStockBarHistDataGet('>=000001',tstartdate,self.tenddate,"5M")
         
         return df_stock,df_index,df_dapan
+        
+        
+    def get1minData(self):
+        
+        df_dapan =self.mktindex.MktIndexBarHistDataGet('=399317',sDate_Start=self.tstartdate,sDate_End=self.tenddate,speriod='1M') 
+        
+        df_index = self.mktindex.MktIndexBarHistDataGet('>400000',self.tstartdate,self.tenddate,"1M")
+        
+        df_stock= self.mktstock.MktStockBarHistDataGet('>=000001',self.tstartdate,self.tenddate,"1M")
+        
+        return df_stock,df_index,df_dapan        
             
+            
+    #计算指数每个最小周期涨幅
+    def indexEveryChg(self,df_index):
+        #计算指数每日涨幅
+        df_index['chg'] = df_index['hq_close'].groupby(df_index['hq_code']).diff()
+        df_index['preclose']=df_index['hq_close'].groupby(df_index['hq_code']).shift()
+        df_index['chgper']=df_index['chg']/df_index['preclose']
+        #df_index.index=df_index['index']           
+   
+        return df_index
+      
+    #计算股票每个最小周期涨幅
+    def stockEveryChg(self,df_stock):
+        #计算股票每个周期涨幅
+        df_stock['chg'] = df_stock['hq_close'].groupby(df_stock['hq_code']).diff()
+        df_stock['preclose']=df_stock['hq_close'].groupby(df_stock['hq_code']).shift()
+        df_stock['chgper']=df_stock['chg']/df_stock['preclose']                
+        #修复索引，防止出错
+        df_stock.index=np.arange(len(df_stock)) 
+
+        return df_stock        
+        
+            
+    #计算每日涨幅,相对涨幅，排名
     def calculateChg(self,df_stock,df_index,df_dapan):
              
         
@@ -257,32 +359,14 @@ class ZH():
             index=np.arange(1,len(x)+1)
             x['paiming']=index
             return x
-        
-        
-        #计算股票每日涨幅
-        df_stock['chg'] = df_stock['hq_close'].groupby(df_stock['hq_code']).diff()
-        df_stock['preclose']=df_stock['hq_close'].groupby(df_stock['hq_code']).shift()
-        df_stock['chgper']=df_stock['chg']/df_stock['preclose']
-        #剔除未复权的错误数据
-        errorIndex=df_stock[df_stock.chgper<-0.12].index
-        df_stock.drop(errorIndex,inplace=True)
-        #df_stock.index=df_stock['index']
-               
-        #计算指数每日涨幅
-        df_index['chg'] = df_index['hq_close'].groupby(df_index['hq_code']).diff()
-        df_index['preclose']=df_index['hq_close'].groupby(df_index['hq_code']).shift()
-        df_index['chgper']=df_index['chg']/df_index['preclose']
-        #df_index.index=df_index['index']
 
         #计算大盘每日涨幅   
         df_dapan.index=df_dapan['index']
         daPanChg = df_dapan['hq_close'].diff()
         daPanPreCLose=df_dapan['hq_close'].shift()
         daPanChgper=daPanChg/daPanPreCLose
-           
-        #拼接板块的代码与名称              
-        df_index['hq_name']=self.getIndexNames(df_index,self.indexNames)           
-               
+        dateList=df_dapan['hq_date'].tolist()
+        del dateList[0]                               
         #length=len(daPanChg)
         
 #        #按交易日期补全数据，停牌涨幅设为-100
@@ -298,19 +382,32 @@ class ZH():
 ##                data['chgper'].fillna(0,inplace=True)       
 ##            df_stock=df_stock.append(data)
 #       
+        #得到指数每日涨幅
+        df_index=self.indexEveryChg(df_index)
+        #拼接板块的代码与名称              
+        df_index['hq_name']=self.getIndexNames(df_index,self.indexNames) 
         #修复索引，防止出错
-        df_stock.index=np.arange(len(df_stock))   
-                
+        #df_index.index=np.arange(len(df_index))    
+        df_index['xdchgper']=df_index['chgper'].groupby(df_index['hq_code']).apply(lambda x: self.xdChg(x,daPanChgper))        
+        
+        df_index=df_index[['hq_name','hq_date','chgper','xdchgper']].dropna() 
+
+        indexChg=[]        
+               
+        #计算每日排名，加入数据列表
+        for date in dateList:
+            data=df_index[df_index.hq_date==date]    
+            chg=data.sort_values(by=['chgper'], ascending=[0])
+            indexChg.append(chg)        
+           
+        #计算股票每日涨幅           
+        df_stock=self.stockEveryChg(df_stock)
+        
         #计算每日相对涨幅
         df_stock['xdchgper']=df_stock['chgper'].groupby(df_stock['hq_code']).apply(lambda x: self.xdChg(x,daPanChgper))
         
         #按股票涨幅排序
         df_stock=df_stock.groupby(df_stock['hq_date']).apply(paixu)
-               
-        #修复索引，防止出错
-        #df_index.index=np.arange(len(df_index))
-        
-        df_index['xdchgper']=df_index['chgper'].groupby(df_index['hq_code']).apply(lambda x: self.xdChg(x,daPanChgper))
 
         #获取代码对应股票名称
         df_stock['hq_name']=self.getStockNames(df_stock,self.stockNames)
@@ -320,72 +417,56 @@ class ZH():
                                          
         #筛选数据
         df_stock=df_stock[['hq_name','hq_date','chgper','xdchgper','board_name','paiming','hq_code']].dropna()
-        df_index=df_index[['hq_name','hq_date','chgper','xdchgper']].dropna() 
+        
         daPanChgper.dropna(inplace=True)        
         
         #找到RF200   
         df_stock200=self.getRF(200,df_stock)               
 
         #定义涨幅与相对涨幅列表
-        indexChg=[]
         stockChg=[]
         stock200Chg=[]
-        timeList=[]
-        dateList=[]
-               
-        #计算每日排名，加入数据列表
-        indexGrouped=df_index.groupby('hq_date')
-        for date,data in indexGrouped:
-            timeList.append(date.strftime('%Y-%m-%d'))
-            dateList.append(date)
-            chg=data.sort_values(by=['chgper'], ascending=[0])
-            indexChg.append(chg)
-            
-        num=0
+        
         for date in dateList:
             #涨幅的添加
             stockData=df_stock[df_stock.hq_date==date]          
             stock200Data=df_stock200[df_stock200.hq_date==date]
             stockChg.append(stockData)
             stock200Chg.append(stock200Data)   
-            num+=1             
-             
         
-        return timeList,indexChg,stockChg,stock200Chg
+        return indexChg,stockChg,stock200Chg
     
 
-    def calculateZqChg(self,df_stock,df_index,df_dapan):
-        def zhouqi(x):
-            closeList=x['hq_close'].tolist()
-            _open=closeList[0]
-            _close=closeList[-1]
-            diff=_close-_open
-            try:
-                chgper=diff/_open
-                x['chgper']=chgper
-                return x.tail(1)
-            except Exception as e:
-                print e       
-                print x.name
 
-        #计算股票周期涨幅
-        zq_stock=df_stock.groupby('hq_code').apply(zhouqi)
+    def stockZqChg(self,df_stock):
         
-        #计算指数周期涨幅
-        zq_index = df_index.groupby('hq_code').apply(zhouqi)
+        zq_stock=df_stock.groupby('hq_code').apply(self.getZqChg)   
+        return zq_stock      
         
-        #计算大盘周期涨幅
+    def indexZqChg(self,df_index):
+        zq_index = df_index.groupby('hq_code').apply(self.getZqChg)
+        return zq_index
+        
+    
+    def dapanZqChg(self,df_dapan):
         daPanCloseList=df_dapan['hq_close'].tolist()
         daPanDiff=daPanCloseList[-1]-daPanCloseList[0]
-        daPanZqChgper=daPanDiff/daPanCloseList[0]        
+        daPanZqChgper=daPanDiff/daPanCloseList[0] 
+        return daPanZqChgper
         
+      
+    def calculateZqChg(self,df_stock,df_index,df_dapan):
+
+        #计算大盘周期涨幅
+        daPanZqChgper=self.dapanZqChg(df_dapan)
+       
+        
+        #计算股票周期涨幅
+        zq_stock=self.stockZqChg(df_stock)
         #计算周期相对涨幅
         zq_stock['xdchgper']=zq_stock['chgper']-daPanZqChgper
         
-        zq_index['xdchgper']=zq_index['chgper']-daPanZqChgper 
- 
-        zq_stock['hq_name']=self.getStockNames(zq_stock,self.stockNames)   
-        zq_index['hq_name']=self.getIndexNames(zq_index,self.indexNames)          
+        zq_stock['hq_name']=self.getStockNames(zq_stock,self.stockNames) 
         
         #得到股票所属板块        
         zq_stock['board_name']=self.getStockRelated(zq_stock,self.stockrelated)      
@@ -398,22 +479,32 @@ class ZH():
         zq_stock200=self.getRF(200,zq_stock)        
         
         zq_stock30=self.getRF(30,zq_stock)
-                          
-        zq_index=zq_index[['hq_name','chgper','xdchgper']].sort_values(by=['chgper'], ascending=[0])         
-        
+                        
         #计算周期排名
         zq_stock=zq_stock.loc[:,['hq_name','chgper','xdchgper','board_name','paiming']].dropna() 
         
         zq_stock200=zq_stock200.loc[:,['hq_name','chgper','xdchgper','board_name','paiming']].dropna()        
         
         zq_stock30=zq_stock30.loc[:,['hq_name','chgper','xdchgper','board_name','paiming']]
-          
+                
+        #计算指数周期涨幅
+        zq_index = self.indexZqChg(df_index)
+        zq_index['xdchgper']=zq_index['chgper']-daPanZqChgper         
+        zq_index['hq_name']=self.getIndexNames(zq_index,self.indexNames)                            
+        zq_index=zq_index[['hq_name','chgper','xdchgper']].sort_values(by=['chgper'], ascending=[0])             
         zq_index=zq_index.loc[:,['hq_name','chgper','xdchgper']].sort_values(by=['chgper'], ascending=[0]) 
 
         return zq_index,zq_stock,zq_stock200,zq_stock30
         
+    def calculateMinZqChg(self):
+        df_stock= self.mktstock.MktStockBarHistDataGet('>=000001',self.tstartdate,self.tenddate,"5M")
+        df_stock=df_stock.groupby('hq_code').apply(self.getZqChg)
+        df_stock.set_index('hq_code',inplace=True)
+        return df_stock['chgper']
+        
+        
     #计算Q因子，特立独行
-    def calculateFactor(self,dates,df_stock,df_index,df_dapan):
+    def calculateFactor(self,df_stock,df_index,df_dapan):
                           
         #拼接板块的代码与名称              
         df_index['hq_name']=self.getIndexNames(df_index,self.indexNames)
@@ -434,9 +525,10 @@ class ZH():
         sQList=[[],[],[]]
         #sQList200=[]
                       
+        dates=df_dapan['hq_date'].drop_duplicates().drop(0)
         for tstartdate in dates:
         #for tstartdate in df_index['hq_date']:            
-            tstartdate=datetime.datetime.strptime(tstartdate,'%Y-%m-%d').date()
+            #tstartdate=datetime.datetime.strptime(tstartdate,'%Y-%m-%d').date()
             
             dapan_price=df_dapan[df_dapan.hq_date==tstartdate]['hq_close']
             
@@ -457,20 +549,22 @@ class ZH():
             sTLDXList[2].append(stockTLDX30)
                             
             #计算指数当日涨幅
-            chg = indexDay['hq_close'].groupby(indexDay['hq_name']).diff()
-            preclose=indexDay['hq_close'].groupby(indexDay['hq_name']).shift()
-            indexDay['chgper']=chg/preclose    
+#            chg = indexDay['hq_close'].groupby(indexDay['hq_name']).diff()
+#            preclose=indexDay['hq_close'].groupby(indexDay['hq_name']).shift()
+#            indexDay['chgper']=chg/preclose            
+            indexDay=self.indexEveryChg(indexDay)
                     
             #计算股票当日涨幅  
-            chg = stockDay['hq_close'].groupby(stockDay['hq_name']).diff()
-            preclose=stockDay['hq_close'].groupby(stockDay['hq_name']).shift()
-            stockDay['chgper']=chg/preclose             
+#            chg = stockDay['hq_close'].groupby(stockDay['hq_name']).diff()
+#            preclose=stockDay['hq_close'].groupby(stockDay['hq_name']).shift()
+#            stockDay['chgper']=chg/preclose    
+            stockDay=self.stockEveryChg(stockDay)
             
-            indexDay   = indexDay.groupby(indexDay['hq_name']).apply(self.jsS)
-            stockDay   = stockDay.groupby(stockDay['hq_name']).apply(self.jsS)
+            indexDay   = indexDay.groupby(indexDay['hq_code']).apply(self.jsS)
+            stockDay   = stockDay.groupby(stockDay['hq_code']).apply(self.jsS)
             
-            indexQ = indexDay.groupby(indexDay['hq_name']).apply(self.jsQIndex).sort_values(by=['Q'])
-            stockQ = stockDay.groupby(stockDay['hq_name']).apply(self.jsQStock).sort_values(by=['Q'])
+            indexQ = indexDay.groupby(indexDay['hq_code']).apply(self.jsQIndex).sort_values('Q')
+            stockQ = stockDay.groupby(stockDay['hq_code']).apply(self.jsQStock).sort_values('Q')
             
             #筛选RF200    
             stockQ200=self.getRF(200,stockQ)      
@@ -480,10 +574,18 @@ class ZH():
             sQList[1].append(stockQ200)
             sQList[2].append(stockQ30)
             
+            print tstartdate
+            
         return iTLDXList,sTLDXList,iQList,sQList
             
-    def calculateZqFactor(self,df_stock,df_index,df_dapan): 
-               
+            
+            
+    def indexZqTldx(self,df_index,df_dapan):
+        indexTLDX=df_index[['hq_code','hq_close']].groupby(df_index['hq_code']).agg({'hq_code':'first','hq_close':lambda x:self.tldx(x,df_dapan['hq_close'])}).sort_values('hq_close')
+        return indexTLDX
+        
+        
+    def indexZqQ(self,df_index):
         def jsQindex(x):
             totalvol=x['hq_vol'].sum()
             try:           
@@ -492,11 +594,25 @@ class ZH():
                 smartvol=x['hq_vol'].sum()
                 VWAPsmart=(x['hq_close']*x['hq_vol']).sum()/smartvol 
                 x['Q']=VWAPsmart/VWAPall
-                x=x[['Q','hq_code']].head(1)
+                x=x.loc[:,['Q','hq_code']].head(1)
                 return x                   
             except ZeroDivisionError:
-                pass     
-            
+                pass           
+     
+        #计算指数涨幅
+        df_index=self.indexEveryChg(df_index)
+        #计算指数聪明因子                 
+        df_index   = df_index.groupby(df_index['hq_code']).apply(self.jsS)                                  
+        #指数Q因子
+        indexQ = df_index.groupby(df_index['hq_code']).apply(jsQindex).sort_values('Q') 
+
+        return indexQ      
+    
+    def stockZqTldx(self,df_stock,df_dapan):
+        stockTLDX=df_stock[['hq_close','hq_code']].groupby(df_stock['hq_code']).agg({'hq_close':lambda x:self.tldx(x,df_dapan['hq_close']),'hq_code':'first'}).sort_values('hq_close')        
+        return stockTLDX        
+        
+    def stockZqQ(self,df_stock):
         def jsQstock(x):
             totalvol=x['hq_vol'].sum()
             try:           
@@ -505,33 +621,42 @@ class ZH():
                 smartvol=x['hq_vol'].sum()
                 VWAPsmart=(x['hq_amo']).sum()/smartvol 
                 x['Q']=VWAPsmart/VWAPall
-                x=x[['Q','hq_code']].head(1)
+                x=x.loc[:,['Q','hq_code']].head(1)
                 return x                   
             except ZeroDivisionError:
-                pass             
-                                     
-        indexTLDX=df_index[['hq_code','hq_close']].groupby(df_index['hq_code']).agg({'hq_code':'first','hq_close':lambda x:self.tldx(x,df_dapan['hq_close'])}).sort_values('hq_close')  
-        stockTLDX=df_stock[['hq_close','hq_code']].groupby(df_stock['hq_code']).agg({'hq_close':lambda x:self.tldx(x,df_dapan['hq_close']),'hq_code':'first'}).sort_values('hq_close')        
-       
-        #计算指数涨幅
-        chg = df_index['hq_close'].groupby(df_index['hq_code']).diff()
-        preclose=df_index['hq_close'].groupby(df_index['hq_code']).shift()
-        df_index['chgper']=chg/preclose    
-                
+                pass          
         #计算股票涨幅  
-        chg = df_stock['hq_close'].groupby(df_stock['hq_code']).diff()
-        preclose=df_stock['hq_close'].groupby(df_stock['hq_code']).shift()
-        df_stock['chgper']=chg/preclose   
-                    
-#        计算Q因子
-#        先计算聪明因子
-        df_index   = df_index.groupby(df_index['hq_code']).apply(self.jsS)
-        df_stock   = df_stock.groupby(df_stock['hq_code']).apply(self.jsS)     
+        df_stock=self.stockEveryChg(df_stock)
+        #先计算聪明因子
+        df_stock   = df_stock.groupby(df_stock['hq_code']).apply(self.jsS)    
+        #计算Q因子
+        stockQ = df_stock.groupby(df_stock['hq_code']).apply(jsQstock).sort_values('Q')     
         
-        #指数
-        indexQ = df_index.groupby(df_index['hq_code']).apply(jsQindex).sort_values(by=['Q'])
-        #股票
-        stockQ = df_stock.groupby(df_stock['hq_code']).apply(jsQstock).sort_values(by=['Q'])
+        return stockQ
+        
+    def calculateZqFactor(self,df_stock,df_index,df_dapan): 
+                     
+#        chg = df_index['hq_close'].groupby(df_index['hq_code']).diff()
+#        preclose=df_index['hq_close'].groupby(df_index['hq_code']).shift()
+#        df_index['chgper']=chg/preclose    
+                
+
+#        chg = df_stock['hq_close'].groupby(df_stock['hq_code']).diff()
+#        preclose=df_stock['hq_close'].groupby(df_stock['hq_code']).shift()
+#        df_stock['chgper']=chg/preclose   
+                    
+        #df_stock.fillna(0,inplace=True)
+        
+        #股票特立独行
+        stockTLDX=self.stockZqTldx(df_stock,df_dapan)
+       #计算股票Q因子
+        stockQ=self.stockZqQ(df_stock)        
+                  
+        #计算指数特立独行
+        indexTLDX=self.indexZqTldx(df_index,df_dapan)           
+        #指数Q因子
+        indexQ=self.indexZqQ(df_index)
+        
 
         #拼接股票的代码与名称
         stockTLDX['hq_name']=self.getStockNames(stockTLDX,self.stockNames) 
@@ -581,8 +706,8 @@ class ZH():
 #        #获取每日数据
 #          #市场股票
 #        df_stock=df_stock[df_stock.hq_date>=sdate]
-#          #国证A指
-#        df_dapan=df_dapan[df_dapan.hq_date>=sdate]
+          #上证指数
+        df_sz=mktindex.MktIndexBarHistDataGet('=000001',self.tstartdate,self.tenddate,"D")
           #创业板综
         df_cybz   = mktindex.MktIndexBarHistDataGet('=399102',self.tstartdate,self.tenddate,"D")
           #次新
@@ -607,6 +732,7 @@ class ZH():
         allChgsz50=allChg(df_sz50)
         allChgzz500=allChg(df_zz500)
         allChghs300=allChg(df_hs300)
+        allChgsz=allChg(df_sz)
         achg200=df_stock200[['hq_code','hq_open','hq_close','hq_date']].groupby('hq_code').apply(lambda x:allChg(x,1))
         achg30=df_stock30[['hq_code','hq_open','hq_close','hq_date']].groupby('hq_code').apply(lambda x:allChg(x,1))   
         timeList=[]
@@ -634,7 +760,7 @@ class ZH():
         chgcxto300=allChgcx-allChghs300       
         
         #得到净值数据
-        avgDic={'日期':timeList,'RF200净值':allChg200,'RF30净值':allChg30,'国证A指':allChgdapan,'RF200相对RF30':chg200to30,'RF30相对沪深300':chg30tohs300,'上证50相对沪深300':chg50to300,'中证500相对沪深300':chg500to300,'创业板综相对沪深300':chgcybto300,'次新股相对沪深300':chgcxto300,'创业板综':allChgcybz,'次新股':allChgcx,'上证50':allChgsz50,'中证500':allChgzz500,'沪深300':allChghs300,'沪深300指数':df_hs300['hq_close'],'RF200相对沪深300':chg200tohs300}
+        avgDic={'日期':timeList,'RF200净值':allChg200,'RF30净值':allChg30,'国证A指':allChgdapan,'RF200相对RF30':chg200to30,'RF30相对沪深300':chg30tohs300,'上证50相对沪深300':chg50to300,'中证500相对沪深300':chg500to300,'创业板综相对沪深300':chgcybto300,'次新股相对沪深300':chgcxto300,'创业板综':allChgcybz,'次新股':allChgcx,'上证50':allChgsz50,'中证500':allChgzz500,'沪深300':allChghs300,'沪深300指数':df_hs300['hq_close'],'RF200相对沪深300':chg200tohs300,'上证指数':allChgsz}
         avg=pd.DataFrame(avgDic)   
         #计算周期净值变化
         chg200=allChg200.iat[-1]
@@ -687,9 +813,10 @@ class ZH():
         stockd,indexd,dapand=self.getDayData()
         stock5,index5,dapan5=self.get5minData()        
 
+        zfTimes=dapand['hq_date'].drop_duplicates().drop(0).apply(lambda x:x.strftime("%Y-%m-%d"))
         #生成每日报表
-        zfTimes,indexChg,stockChg,stock200Chg=self.calculateChg(stockd,indexd,dapand)
-        (iTLDX,sTLDX,iQList,sQList)=self.calculateFactor(zfTimes,stock5,index5,dapan5)
+        indexChg,stockChg,stock200Chg=self.calculateChg(stockd,indexd,dapand)
+        (iTLDX,sTLDX,iQList,sQList)=self.calculateFactor(stock5,index5,dapan5)
        
         num=0
         for t in zfTimes:
@@ -698,16 +825,16 @@ class ZH():
             #p.update()
             num+=1
             print num
-        
-        #生成周期报表
-        indexZqTLDX,stockZqTLDX,indexQ,stockQ,stockQ200,stockTLDX200,stockQ30,stockTLDX30=self.calculateZqFactor(stock5,index5,dapan5)  
-        indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg=self.calculateZqChg(stockd,indexd,dapand)      
-        sdate=zfTimes[0]
-        edate=zfTimes[-1]   
-        period=sdate+'至'+edate       
-        p=picZqZH.picExcel(period,indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg,indexZqTLDX,stockZqTLDX,stockTLDX200,stockTLDX30,indexQ,stockQ,stockQ200,stockQ30)
-        p.picModel()
-        print '综合报表生成'   
+#        
+#        #生成周期报表
+#        indexZqTLDX,stockZqTLDX,indexQ,stockQ,stockQ200,stockTLDX200,stockQ30,stockTLDX30=self.calculateZqFactor(stock5,index5,dapan5)  
+#        indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg=self.calculateZqChg(stockd,indexd,dapand)      
+#        sdate=zfTimes.iat[0]
+#        edate=zfTimes.iat[-1]   
+#        period=sdate+'至'+edate       
+#        p=picZqZH.picExcel(period,indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg,indexZqTLDX,stockZqTLDX,stockTLDX200,stockTLDX30,indexQ,stockQ,stockQ200,stockQ30)
+#        p.picModel()
+#        print '综合报表生成'   
         
 
     def factorCount(self):
@@ -749,8 +876,8 @@ class ZH():
         
         return zh,tj
     
-    #一次性给200标的和30标的数据排序
-    def rank(self,data,gname):
+    #为数据排序
+    def rank(self,data,gradename,maxgrade=5):
         
         #计算长度均值，然后依据这个值把数据划分为5等分
         
@@ -763,18 +890,18 @@ class ZH():
             data.reset_index(inplace=True)
         else:         
             data.index=np.arange(dataLen)
-        avg=float(dataLen)/5
+        avg=float(dataLen)/maxgrade
                  
         n=0
         
         grade=pd.Series()
         
-        gradename=gname+'grade'
+        gradename=gradename+'grade'
         #不知道为什么，这里用np.arange排序后不能用这个排序把数据筛选出来，只能用索引排序筛选了
-        for i in xrange(5):
+        for i in xrange(maxgrade):
             tmp=data[(data.index>=n)&(data.index<(n+avg))] 
  
-            tmp[gradename]=(5-i)
+            tmp[gradename]=(maxgrade-i)
 
             grade=grade.append(tmp[gradename])
 
@@ -834,14 +961,14 @@ class ZH():
             
             return q['fgrade']
     
-    def chgRank(self,stock200chg,stock30chg,stockchg=pd.DataFrame()):
+    def chgRank(self,stock200chg,stock30chg,stockchg=pd.DataFrame(),maxgrade=5):
         if stockchg.empty:          
-            stock200chg=self.rank(stock200chg,'chg')
-            stock30chg=self.rank(stock30chg,'chg')
+            stock200chg=self.rank(stock200chg,'chg',maxgrade)
+            stock30chg=self.rank(stock30chg,'chg',maxgrade)
              
             return stock200chg.loc[:,['hq_name','chgper','chggrade']],stock30chg.loc[:,['hq_name','chgper','chggrade']]
         else:
-            stockchg=self.rank(stockchg,'chg')
+            stockchg=self.rank(stockchg,'chg',maxgrade)
             return stockchg.loc[:,['hq_name','chgper','chggrade']]
             
     
@@ -862,13 +989,13 @@ class ZH():
             atr_all=self.rank(atr_all,'atr')        
             return rzye_df,atr_all
     
-    def getRank(self,stock200ZqChg,stock30ZqChg,stockZqChg,sdate,edate,allFlag=0):
+    def getRank(self,stock200ZqChg,stock30ZqChg,stockZqChg,sdate,edate,allFlag=0,update=False):
         
         if allFlag==0:
             stock200ZqChg,stock30ZqChg=self.chgRank(stock200ZqChg,stock30ZqChg)        
             frank200,frank30=self.factorRank(sdate,edate)
             zjdata200,zjdata30=self.zjRank(sdate,edate)   
-            rzye200_df,rzye30_df,atr_200,atr_30=self.tradingRank(sdate,edate)   
+            rzye200_df,rzye30_df,atr_200,atr_30=self.tradingRank(sdate,edate,allFlag,update)   
             
             df_rank=[]
             
@@ -876,14 +1003,17 @@ class ZH():
             df_rank1.loc[:,['mt_rzye','rzgrade']]=df_rank1.loc[:,['mt_rzye','rzgrade']].fillna(0)
             df_rank1['grade']=df_rank1['chggrade']*0.3+df_rank1['zjgrade']*0.3+df_rank1['atrgrade']*0.1+df_rank1['rzgrade']*0.1+df_rank1['fgrade']*0.2
             df_rank1=df_rank1.sort_values('grade',ascending=False).dropna() 
+            df_rank1=self.getBoard(200,df_rank1)
             df_rank1.index=np.arange(len(df_rank1))
             
             df_rank2=pd.concat([frank30,zjdata30,stock30ZqChg,rzye30_df,atr_30],axis=1)
             df_rank2.loc[:,['mt_rzye','rzgrade']]=df_rank2.loc[:,['mt_rzye','rzgrade']].fillna(0)
             df_rank2['grade']=df_rank2['chggrade']*0.3+df_rank2['zjgrade']*0.3+df_rank2['atrgrade']*0.1+df_rank2['rzgrade']*0.1+df_rank2['fgrade']*0.2
-            df_rank2.sort_values('grade',ascending=False,inplace=True)             
+            df_rank2.sort_values('grade',ascending=False,inplace=True)   
+            df_rank2=self.getBoard(30,df_rank2)
             df_rank2.index=np.arange(len(df_rank2))
             
+            #标记200中的30，后面用不同的颜色区分开            
             df_rank1['cFlag']=df_rank1['hq_name'].isin(df_rank2['hq_name'])
             
             df_rank.append(df_rank1)
@@ -904,7 +1034,7 @@ class ZH():
             df_rank.index=np.arange(len(df_rank))       
             return df_rank
 
-    def buildForm(self,allFlag=0):
+    def buildJzRankForm(self,allFlag=0,update=False,rankFlag=1):
         stockd,indexd,dapand=self.getDayData() 
         indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg=self.calculateZqChg(stockd,indexd,dapand) 
         
@@ -912,8 +1042,11 @@ class ZH():
         edate=dapand['hq_date'].iat[-1].strftime("%Y-%m-%d") 
         period=sdate+'至'+edate        
         
-        #allFlag=0，则只取公司标的，否则取全市场         
-        df_rank=self.getRank(stock200ZqChg,stock30ZqChg,stockZqChg,sdate,edate,allFlag)
+        #allFlag=0，则只取公司标的，否则取全市场       
+        if rankFlag==0:
+            df_rank=[]
+        else:
+            df_rank=self.getRank(stock200ZqChg,stock30ZqChg,stockZqChg,sdate,edate,allFlag,update)
         
         if allFlag==0:
             rf200zqchg,rf30zqchg=self.getRFTop(stock200ZqChg,stock30ZqChg)
@@ -927,35 +1060,88 @@ class ZH():
             df_rank.columns=['名称','涨幅','特大净额','大净额','总净额','特大占比','融资余额','ATR','异动级别','总评']
             df_rank.to_csv(u'E:\\工作\\数据备份\\全市场选股\\'+period+'.csv',encoding='gbk',float_format='%.2f')
         
-if __name__=='__main__':
-    c=ZH('2017-06-30','2017-07-06')
-    c.buildForms()
-#    stockd,indexd,dapand=c.getDayData() 
-#    sdate=dapand['hq_date'].iat[1].strftime("%Y-%m-%d")
-#    edate=dapand['hq_date'].iat[-1].strftime("%Y-%m-%d") 
-#    period=sdate+'至'+edate     
-#
-#    indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg=c.calculateZqChg(stockd,indexd,dapand) 
-#    
-#    stock200ZqChg,stock30ZqChg=c.chgRank(stock200ZqChg,stock30ZqChg)    
-#    frank200,frank30=c.factorRank(sdate,edate)
-#    zjdata200,zjdata30=c.zjRank(sdate,edate)   
-#    rzye200_df,rzye30_df,atr_200,atr_30=c.tradingRank(sdate,edate)      
-#   
-#    df_rank=[]
-#    
-#    df_rank1=pd.concat([frank200,zjdata200,stock200ZqChg,rzye200_df,atr_200],axis=1)
-#    df_rank1.loc[:,['mt_rzye','rzgrade']]=df_rank1.loc[:,['mt_rzye','rzgrade']].fillna(0)
-#    df_rank1['grade']=df_rank1['chggrade']*0.3+df_rank1['zjgrade']*0.3+df_rank1['atrgrade']*0.1+df_rank1['rzgrade']*0.1+df_rank1['fgrade']*0.2
-#    df_rank1=df_rank1.sort_values('grade',ascending=False).dropna()
-#    df_rank1.reset_index(inplace=True)
-#    
-#    df_rank2=pd.concat([frank30,zjdata30,stock30ZqChg,rzye30_df,atr_30],axis=1)
-#    df_rank2.loc[:,['mt_rzye','rzgrade']]=df_rank2.loc[:,['mt_rzye','rzgrade']].fillna(0)
-#    df_rank2['grade']=df_rank2['chggrade']*0.3+df_rank2['zjgrade']*0.3+df_rank2['atrgrade']*0.1+df_rank2['rzgrade']*0.1+df_rank2['fgrade']*0.2
-#    df_rank2.sort_values('grade',ascending=False,inplace=True)             
-#    df_rank2.reset_index(inplace=True)
+    def buildMinRankForm(self,factor=False):
+        stock5,index5,dapan5=self.get1minData()
+        
+        stockZqChg=self.stockZqChg(stock5).loc[:,['hq_code','chgper']]
+        stockZqChg.sort_values('chgper',inplace=True,ascending=False)
+        
+        z=ZJ.ZJ()
+        amodata=z.zqMinAmo(self.tstartdate,self.tenddate)
+        amodata.sort_values('bigper',inplace=True,ascending=False)
+        
+        chgRank=self.rank(stockZqChg,'chg',10)
+        zjRank=self.rank(amodata,'zj',10)
+            
+        if factor==True:
+            stockZqTLDX=self.stockZqTldx(stock5,dapan5)
+            stockZqTLDX.sort_values('hq_close',inplace=True)
+            stockQ=self.stockZqQ(stock5)
+            stockQ.sort_values('Q',inplace=True)
+            
+            tldxRank=self.rank(stockZqTLDX,'tldx',10)
+            qRank=self.rank(stockQ,'q',10)
+            qRank['fgrade']=qRank['qgrade']*0.5+tldxRank['tldxgrade']*0.5          
+            df_rank=pd.concat([chgRank,zjRank,qRank],axis=1).dropna()
+            df_rank['grade']=df_rank['chggrade']*0.4+df_rank['zjgrade']*0.4+df_rank['fgrade']*0.2
+            df_rank=self.getBoard(3000,df_rank)
+            df_rank['hq_name']=self.getStockNames(df_rank,self.stockNames)
+            df_rank=df_rank.loc[:,['hq_name','board_name','chgper','bigD','bigper','fgrade','grade']]
+            
+        else:            
+            df_rank=pd.concat([chgRank,zjRank],axis=1).dropna()
+            df_rank['grade']=df_rank['chggrade']*0.5+df_rank['zjgrade']*0.5
+            df_rank=self.getBoard(3000,df_rank)
+            df_rank['hq_name']=self.getStockNames(df_rank,self.stockNames)
+            df_rank=df_rank.loc[:,['hq_name','board_name','chgper','bigD','bigper','grade']]
+               
+        df_rank['chgper']=df_rank['chgper']*100
+        df_rank['bigper']=df_rank['bigper']*100
+        df_rank.sort_values(['board_name','grade'],inplace=True,ascending=False)
+        
+        df_rank200=self.getRF(200,df_rank,1)
+        df_rank30=self.getRF(30,df_rank,1)
+#        df_rank200.reset_index(inplace=True)    
+#        df_rank30.reset_index(inplace=True)
+        
+        if factor==True:
+            df_rank200.columns=df_rank30.columns=df_rank.columns=['名称','板块','涨幅','大单净额','净额占比','异动级别','综合评分']
+        else:
+            df_rank200.columns=df_rank30.columns=df_rank.columns=['名称','板块','涨幅','大单净额','净额占比','综合评分']
+        
+        df_rank200['']=''
+        df_rank200[' ']=''
+        df_rank200['  ']=''
+        
+        df_rank200.index=np.arange(len(df_rank200))
+        df_rank30.index=np.arange(len(df_rank30))
+        df_rankRF=pd.concat([df_rank200,df_rank30],axis=1)
+        
+        if factor==False:       
+            df_rank.to_csv(u'E:\\工作\\数据备份\\全市场选股\\'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
+            df_rankRF.to_csv(u'E:\\工作\\数据备份\\全市场选股\\RF'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.3f')
+        else:
+            df_rank.to_csv(u'E:\\工作\\数据备份\\全市场选股\\F'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
+            df_rankRF.to_csv(u'E:\\工作\\数据备份\\全市场选股\\FRF'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.3f')            
+        
 
-#    df_rank1['cFlag']=df_rank1['hq_name'].isin(df_rank2['hq_name']) 
+
+        
+        
+        
+        
+if __name__=='__main__':
+#    t1=time.time()
+    #注意 纯日期不要打空格
+    c=ZH('2017-07-10','2017-07-14')
+    #c.buildJzRankForm(update=False,rankFlag=1)
+#    stock,index,dapan=c.getDayData()
+#    a,b=c.getAllChg(stock,dapan)
+
+    
+    
     
 
+                            
+
+    
