@@ -525,7 +525,7 @@ class ZH():
         sQList=[[],[],[]]
         #sQList200=[]
                       
-        dates=df_dapan['hq_date'].drop_duplicates().drop(0)
+        dates=df_dapan['hq_date'].drop_duplicates()#.drop(0)
         for tstartdate in dates:
         #for tstartdate in df_index['hq_date']:            
             #tstartdate=datetime.datetime.strptime(tstartdate,'%Y-%m-%d').date()
@@ -814,27 +814,32 @@ class ZH():
         stock5,index5,dapan5=self.get5minData()        
 
         zfTimes=dapand['hq_date'].drop_duplicates().drop(0).apply(lambda x:x.strftime("%Y-%m-%d"))
+        
         #生成每日报表
-        indexChg,stockChg,stock200Chg=self.calculateChg(stockd,indexd,dapand)
-        (iTLDX,sTLDX,iQList,sQList)=self.calculateFactor(stock5,index5,dapan5)
+        sdate=dapand['hq_date'].iat[-2]
+        indexChg,stockChg,stock200Chg=self.calculateChg(stockd[stockd['hq_date']>=sdate],indexd[indexd['hq_date']>=sdate],dapand[dapand['hq_date']>=sdate])
+        sdate=dapand['hq_date'].iat[-1]
+        (iTLDX,sTLDX,iQList,sQList)=self.calculateFactor(stock5[stock5['hq_date']==sdate],index5[index5['hq_date']==sdate],dapan5[dapan5['hq_date']==sdate])
        
         num=0
-        for t in zfTimes:
+        #for t in zfTimes:
+        for t in [zfTimes.iat[-1]]:
             p=picZH.picExcel(t,indexChg[num],stockChg[num],stock200Chg[num],iTLDX[num],sTLDX[0][num],sTLDX[1][num],sTLDX[2][num],iQList[num],sQList[0][num],sQList[1][num],sQList[2][num])
             p.picModel()
             #p.update()
             num+=1
             print num
 #        
-#        #生成周期报表
-#        indexZqTLDX,stockZqTLDX,indexQ,stockQ,stockQ200,stockTLDX200,stockQ30,stockTLDX30=self.calculateZqFactor(stock5,index5,dapan5)  
-#        indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg=self.calculateZqChg(stockd,indexd,dapand)      
-#        sdate=zfTimes.iat[0]
-#        edate=zfTimes.iat[-1]   
-#        period=sdate+'至'+edate       
-#        p=picZqZH.picExcel(period,indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg,indexZqTLDX,stockZqTLDX,stockTLDX200,stockTLDX30,indexQ,stockQ,stockQ200,stockQ30)
-#        p.picModel()
-#        print '综合报表生成'   
+        if len(zfTimes)>1:
+            #生成周期报表
+            indexZqTLDX,stockZqTLDX,indexQ,stockQ,stockQ200,stockTLDX200,stockQ30,stockTLDX30=self.calculateZqFactor(stock5,index5,dapan5)  
+            indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg=self.calculateZqChg(stockd,indexd,dapand)      
+            sdate=zfTimes.iat[0]
+            edate=zfTimes.iat[-1]   
+            period=sdate+'至'+edate       
+            p=picZqZH.picExcel(period,indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg,indexZqTLDX,stockZqTLDX,stockTLDX200,stockTLDX30,indexQ,stockQ,stockQ200,stockQ30)
+            p.picModel()
+            print '综合报表生成'   
         
 
     def factorCount(self):
@@ -914,20 +919,34 @@ class ZH():
         return data
 
 
-    def zjRank(self,sdate='20170619',edate='20170623',allFlag=0):      
+    def zjRank(self,sdate,edate,allFlag,networth): 
+        sdate=sdate+' 00:00'
+        edate=edate+" 15:00"
         z=ZJ.ZJ()
-        zj200,zj30,zj=z.zqAmo(sdate,edate)        
-        if allFlag==0:
-            zj200=zj200.loc[:,['hq_code','vbigper']]
-            zj30=zj30.loc[:,['hq_code','vbigper']]     
+        zj=z.zqAmoMin(sdate,edate,networth)
+        zj200=self.getRF(200,zj)
+        zj30=self.getRF(30,zj)
+        if allFlag==0:     
             zj200=self.rank(zj200,'zj')
             zj30=self.rank(zj30,'zj')
             return zj200,zj30
         else:
-            zj=self.rank(zj.loc[:,['hq_code','vbigper','bigD','vbigD','lbigD']] ,'zj')
+            zj=self.rank(zj,'zj')        
+
+#        zj200,zj30,zj=z.zqAmo(sdate,edate)        
+#        if allFlag==0:
+#            zj200=zj200.loc[:,['hq_code','vbigper']]
+#            zj30=zj30.loc[:,['hq_code','vbigper']]     
+#            zj200=self.rank(zj200,'zj')
+#            zj30=self.rank(zj30,'zj')
+#            return zj200,zj30
+#        else:
+#            zj=self.rank(zj.loc[:,['hq_code','vbigper','bigD','vbigD','lbigD']] ,'zj')
             return zj
                
     def factorRank(self,sdate,edate,allFlag=0):
+        sdate=sdate.split()[0]
+        edate=edate.split()[0]
         date=sdate+'至'+edate
         tldxfile200=u'E:/工作/数据备份/tldx200'+'/'+date+'.csv'
         tldxfile30=u'E:/工作/数据备份/tldx30'+'/'+date+'.csv'
@@ -972,7 +991,7 @@ class ZH():
             return stockchg.loc[:,['hq_name','chgper','chggrade']]
             
     
-    def tradingRank(self,sdate,edate,allFlag=0,update=False):
+    def tradingRank(self,sdate,edate,allFlag,update):
         
         r=rftrading.RF_TradingMonitor()
         rzye200_df,rzye30_df,atr_200,atr_30,rzye_df,atr_all=r.getTrading(sdate,edate,update)   
@@ -989,12 +1008,12 @@ class ZH():
             atr_all=self.rank(atr_all,'atr')        
             return rzye_df,atr_all
     
-    def getRank(self,stock200ZqChg,stock30ZqChg,stockZqChg,sdate,edate,allFlag=0,update=False):
+    def getRank(self,stock200ZqChg,stock30ZqChg,stockZqChg,sdate,edate,allFlag,update,networth):
         
         if allFlag==0:
             stock200ZqChg,stock30ZqChg=self.chgRank(stock200ZqChg,stock30ZqChg)        
             frank200,frank30=self.factorRank(sdate,edate)
-            zjdata200,zjdata30=self.zjRank(sdate,edate)   
+            zjdata200,zjdata30=self.zjRank(sdate,edate,allFlag,networth)   
             rzye200_df,rzye30_df,atr_200,atr_30=self.tradingRank(sdate,edate,allFlag,update)   
             
             df_rank=[]
@@ -1029,12 +1048,13 @@ class ZH():
             df_rank=pd.concat([stockZqChg,frank,zjdata,rzye_df,atr],axis=1)
             df_rank.loc[:,['mt_rzye','rzgrade']]=df_rank.loc[:,['mt_rzye','rzgrade']].fillna(0)
             df_rank['grade']=df_rank['chggrade']*0.3+df_rank['zjgrade']*0.3+df_rank['atrgrade']*0.1+df_rank['rzgrade']*0.1+df_rank['fgrade']*0.2
-            del df_rank['cFlag']
+            if 'cFlag' in df_rank:       
+                del df_rank['cFlag']
             df_rank=df_rank.sort_values('grade',ascending=False).dropna() 
             df_rank.index=np.arange(len(df_rank))       
             return df_rank
 
-    def buildJzRankForm(self,allFlag=0,update=False,rankFlag=1):
+    def buildJzRankForm(self,allFlag,update,rankFlag,networth):
         stockd,indexd,dapand=self.getDayData() 
         indexZqChg,stockZqChg,stock200ZqChg,stock30ZqChg=self.calculateZqChg(stockd,indexd,dapand) 
         
@@ -1046,7 +1066,7 @@ class ZH():
         if rankFlag==0:
             df_rank=[]
         else:
-            df_rank=self.getRank(stock200ZqChg,stock30ZqChg,stockZqChg,sdate,edate,allFlag,update)
+            df_rank=self.getRank(stock200ZqChg,stock30ZqChg,stockZqChg,sdate,edate,allFlag=allFlag,update=update,networth=networth)
         
         if allFlag==0:
             rf200zqchg,rf30zqchg=self.getRFTop(stock200ZqChg,stock30ZqChg)
@@ -1056,85 +1076,134 @@ class ZH():
             pte = plotToExcel.PlotToExcel()
             pte.bulidAvg(avg,avgChg,stock200ZqChg,stock30ZqChg,df_rank,period)        
         else:
-            df_rank=df_rank.loc[:,['hq_name','chgper','vbigD','lbigD','bigD','vbigper','mt_rzye','atr','fgrade','grade']]
+            df_rank=df_rank.loc[:,['hq_name','chgper','bigD','bigper','mt_rzye','atr','fgrade','grade']]
             df_rank.columns=['名称','涨幅','特大净额','大净额','总净额','特大占比','融资余额','ATR','异动级别','总评']
             df_rank.to_csv(u'E:\\工作\\数据备份\\全市场选股\\'+period+'.csv',encoding='gbk',float_format='%.2f')
         
     def buildMinRankForm(self,factor=False):
-        stock5,index5,dapan5=self.get1minData()
-        
-        stockZqChg=self.stockZqChg(stock5).loc[:,['hq_code','chgper']]
-        stockZqChg.sort_values('chgper',inplace=True,ascending=False)
+
         
         z=ZJ.ZJ()
-        amodata=z.zqMinAmo(self.tstartdate,self.tenddate)
-        amodata.sort_values('bigper',inplace=True,ascending=False)
         
-        chgRank=self.rank(stockZqChg,'chg',10)
-        zjRank=self.rank(amodata,'zj',10)
+        amosum,amonet=z.zqAmoMin(self.tstartdate,self.tenddate)
+
+        zjRanknet=self.rank(amonet,'zj',10)
+        
+        zjRanksum=self.rank(amosum,'zj',10)
             
         if factor==True:
-            stockZqTLDX=self.stockZqTldx(stock5,dapan5)
-            stockZqTLDX.sort_values('hq_close',inplace=True)
+            stock5,index5,dapan5=self.get5minData()
+            
+#            stockZqChg=self.stockZqChg(stock5).loc[:,['hq_code','chgper']]
+#            stockZqChg.sort_values('chgper',inplace=True,ascending=False)
+#            chgRank=self.rank(stockZqChg,'chg',10)            
+#            stockZqTLDX=self.stockZqTldx(stock5,dapan5)
+#            stockZqTLDX.sort_values('hq_close',inplace=True)
             stockQ=self.stockZqQ(stock5)
             stockQ.sort_values('Q',inplace=True)
             
-            tldxRank=self.rank(stockZqTLDX,'tldx',10)
+            #tldxRank=self.rank(stockZqTLDX,'tldx',10)
             qRank=self.rank(stockQ,'q',10)
-            qRank['fgrade']=qRank['qgrade']*0.5+tldxRank['tldxgrade']*0.5          
-            df_rank=pd.concat([chgRank,zjRank,qRank],axis=1).dropna()
-            df_rank['grade']=df_rank['chggrade']*0.4+df_rank['zjgrade']*0.4+df_rank['fgrade']*0.2
+            #qRank['fgrade']=qRank['qgrade']*0.5+tldxRank['tldxgrade']*0.5          
+            #df_rank=pd.concat([chgRank,zjRank,qRank],axis=1).dropna()
+            
+            #净额打分
+            df_rank=pd.concat([zjRanknet,qRank],axis=1).dropna()
+            df_rank['grade']=df_rank['qgrade']*0.4+df_rank['zjgrade']*0.6
             df_rank=self.getBoard(3000,df_rank)
             df_rank['hq_name']=self.getStockNames(df_rank,self.stockNames)
-            df_rank=df_rank.loc[:,['hq_name','board_name','chgper','bigD','bigper','fgrade','grade']]
+            #df_rank=df_rank.loc[:,['hq_name','board_name','chgper','bigD','bigper','fgrade','grade']]
+            df_rank=df_rank.loc[:,['hq_name','board_name','amo','amopower','Q','grade']]
             
-        else:            
-            df_rank=pd.concat([chgRank,zjRank],axis=1).dropna()
+            #总量打分
+            df_rank2=pd.concat([zjRanksum,qRank],axis=1).dropna()
+            df_rank2['grade']=df_rank2['qgrade']*0.4+df_rank2['zjgrade']*0.6
+            df_rank2=self.getBoard(3000,df_rank2)
+            df_rank2['hq_name']=self.getStockNames(df_rank2,self.stockNames)
+            df_rank2=df_rank2.loc[:,['hq_name','board_name','amo','amopower','Q','grade']]
+            
+            
+        else:   
+            stock5,index5,dapan5=self.get5minData()
+            
+            stockZqChg=self.stockZqChg(stock5).loc[:,['hq_code','chgper']]
+            stockZqChg.sort_values('chgper',inplace=True,ascending=False)
+            chgRank=self.rank(stockZqChg,'chg',10)            
+            df_rank=pd.concat([chgRank,zjRanksum],axis=1).dropna()
             df_rank['grade']=df_rank['chggrade']*0.5+df_rank['zjgrade']*0.5
             df_rank=self.getBoard(3000,df_rank)
             df_rank['hq_name']=self.getStockNames(df_rank,self.stockNames)
-            df_rank=df_rank.loc[:,['hq_name','board_name','chgper','bigD','bigper','grade']]
+            df_rank=df_rank.loc[:,['hq_name','board_name','chgper','amo','amopower','grade']]
+            df_rank['chgper']=df_rank['chgper']*100
+            #df_rank['bigper']=df_rank['bigper']*100
                
-        df_rank['chgper']=df_rank['chgper']*100
-        df_rank['bigper']=df_rank['bigper']*100
-        df_rank.sort_values(['board_name','grade'],inplace=True,ascending=False)
-        
+
+        df_rank.sort_values(['grade','board_name'],inplace=True,ascending=False)    
         df_rank200=self.getRF(200,df_rank,1)
         df_rank30=self.getRF(30,df_rank,1)
+        
+        
+        df_rank2.sort_values(['grade','board_name'],inplace=True,ascending=False)     
+        df_rank2002=self.getRF(200,df_rank2,1)
+        df_rank302=self.getRF(30,df_rank2,1)        
+        
+        df_rankI=df_rank.groupby('board_name').agg({'grade':'mean'})
+        df_rankI2=df_rank2.groupby('board_name').agg({'grade':'mean'})
+        df_rankI=df_rankI+df_rankI2
+        df_rankI.reset_index(inplace=True)
+        df_rankI.sort_values('grade',ascending=False,inplace=True)
+        df_rankI.index=np.arange(len(df_rankI))
+        
 #        df_rank200.reset_index(inplace=True)    
 #        df_rank30.reset_index(inplace=True)
         
         if factor==True:
-            df_rank200.columns=df_rank30.columns=df_rank.columns=['名称','板块','涨幅','大单净额','净额占比','异动级别','综合评分']
+            #df_rank200.columns=df_rank30.columns=df_rank.columns=['名称','板块','涨幅','大单净额','净额占比','异动级别','综合评分']
+            df_rank200.columns=df_rank30.columns=df_rank.columns=['名称','板块','大单净额','大单效能','聪明钱','综合评分']
+            df_rank2.columns=df_rank2002.columns=df_rank302.columns=['名称','板块','大单总量','大单效能','聪明钱','综合评分']
         else:
-            df_rank200.columns=df_rank30.columns=df_rank.columns=['名称','板块','涨幅','大单净额','净额占比','综合评分']
+            df_rank200.columns=df_rank30.columns=df_rank.columns=['名称','板块','涨幅','大单净额','大单效能','综合评分']
+          
+        df_rank['']=''
+        df_rank2['']=''
+        df_rankI['']=''
         
+        df_rank.index=df_rank2.index=np.arange(len(df_rank))
+  
         df_rank200['']=''
-        df_rank200[' ']=''
-        df_rank200['  ']=''
+        #df_rank200[' ']=''
+        
+        df_rank2002['']=''
+        #df_rank2002[' ']=''
+        
+        df_rank30['']=''
+        #df_rank30[' ']=''       
         
         df_rank200.index=np.arange(len(df_rank200))
         df_rank30.index=np.arange(len(df_rank30))
-        df_rankRF=pd.concat([df_rank200,df_rank30],axis=1)
         
-        if factor==False:       
-            df_rank.to_csv(u'E:\\工作\\数据备份\\全市场选股\\'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
-            df_rankRF.to_csv(u'E:\\工作\\数据备份\\全市场选股\\RF'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.3f')
+        df_rank2002.index=np.arange(len(df_rank2002))
+        df_rank302.index=np.arange(len(df_rank302))        
+              
+        df_rank=pd.concat([df_rankI,df_rank,df_rank2,df_rank200,df_rank2002,df_rank30,df_rank302],axis=1)
+        
+        if factor==False: 
+            df_rank.to_csv(u'E:\\工作\\报表\\全市场选股\\'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.3f')
+            #df_rankRF.to_csv(u'E:\\工作\\报表\\全市场选股\\RF'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.3f')
         else:
-            df_rank.to_csv(u'E:\\工作\\数据备份\\全市场选股\\F'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
-            df_rankRF.to_csv(u'E:\\工作\\数据备份\\全市场选股\\FRF'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.3f')            
-        
-
+            df_rank.to_csv(u'E:\\工作\\报表\\全市场选股\\F'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.3f')
+            #df_rankRF.to_csv(u'E:\\工作\\报表\\全市场选股\\FRF'+self.tstartdate.replace(':','时')+'至'+self.tenddate.replace(':','时')+'.csv',encoding='gbk',float_format='%.3f')            
 
         
-        
-        
-        
+  
 if __name__=='__main__':
 #    t1=time.time()
     #注意 纯日期不要打空格
-    c=ZH('2017-07-10','2017-07-14')
-    #c.buildJzRankForm(update=False,rankFlag=1)
+    c=ZH('2017-08-02','2017-08-02')
+    #a,b=c.zjRank(c.tstartdate,c.tenddate)
+    #amo=c.indexCashflow('2017-07-17 14:30','2017-07-17 15:00')
+    c.buildMinRankForm(factor=True)
+    #c.buildJzRankForm(update=False,rankFlag=1,allFlag=0,networth=1)
 #    stock,index,dapan=c.getDayData()
 #    a,b=c.getAllChg(stock,dapan)
 

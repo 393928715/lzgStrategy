@@ -463,18 +463,3 @@ class RF_TradingMonitor:
 if '__main__'==__name__:  
     c=RF_TradingMonitor()
     c.getTrading('2017-07-07','2017-07-14',0)
-
-
-    
-
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
