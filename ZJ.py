@@ -24,11 +24,11 @@ sys.setdefaultencoding('utf-8')
 
 class ZJ():
     def __init__(self):
-        self.dir=u'E:\\工作\\tick\\'
+        self.dir=u'E:\\work\\tick\\'
         self.engine=create_engine('mysql://root:lzg000@127.0.0.1/stocksystem?charset=utf8')
         #储存每日资金流的CSV文件目录
-        self.datadir=u"E:/工作/数据备份/资金流/*.csv"      
-        #self.cashflowdir==u"E:/工作/报表/资金流/全市场"
+        self.datadir=u"E:/work/数据备份/资金流/*.csv"      
+        #self.cashflowdir==u"E:/work/报表/资金流/全市场"
     
     #按成交量划分10个类别,并把基础数据导出到CSV
     def tickTradeType(self,sdate,edate):
@@ -176,7 +176,7 @@ class ZJ():
     
     def zqAmo(self,sdate,edate):
         #这里最后一级目录用\\，虽然也可用/，但/+'...'无法被识别
-        fdirtitle=u'E:/工作/数据备份/资金流/day\\'
+        fdirtitle=u'E:/work/数据备份/资金流/day\\'
         flist=glob.glob(fdirtitle+'*.csv')
         
         #筛选日期范围内数据
@@ -240,8 +240,6 @@ class ZJ():
         amodata['amo']=np.abs(amodata['amo'])
         amodata=amodata.groupby(level=0).sum()
         
-                
-            
         stockdata=ts.get_today_all()
         stockdata['code']=stockdata['code'].astype(int)
         stockdata.set_index('code',inplace=True)
@@ -299,6 +297,7 @@ class ZJ():
                     s2.to_sql('cashflowday',con=self.engine,if_exists='append',index=None)
                     
     def zqAmoDay(self,stime,etime):
+        
         amosql="select code,amo from stocksystem.cashflowday where date>='"+stime+ "'and date <='"+etime+"'"
         print amosql
         amodata=pd.read_sql(amosql,con=self.engine,index_col='code').drop_duplicates()
@@ -306,12 +305,12 @@ class ZJ():
         amodata.sort_values('amo',ascending=False,inplace=True)
         c=colligation.ZH(stime,etime)
         amodata=c.getBoard(3000,amodata)
-        amodata.to_csv(u'E:\\工作\\数据备份\\板块资金流\\day\\stock'+stime.replace(':','时')+'至'+etime.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
+        amodata.to_csv(u'E:\\work\\数据备份\\板块资金流\\day\\stock'+stime.replace(':','时')+'至'+etime.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
         amodata=amodata.groupby('board_name').sum()
         amosum=np.abs(amodata['amo']).sum()
         amodata['amoper']=amodata['amo']/amosum*100
         amodata.sort_values('amo',ascending=False,inplace=True)
-        amodata.to_csv(u'E:\\工作\\数据备份\\板块资金流\\day\\index'+stime.replace(':','时')+'至'+etime.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
+        amodata.to_csv(u'E:\\work\\数据备份\\板块资金流\\day\\index'+stime.replace(':','时')+'至'+etime.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
         
         return amodata              
         
@@ -321,9 +320,9 @@ class ZJ():
             top=0
             left=0
             if networth==1:
-                wbk =xlsxwriter.Workbook(u'E:\\工作\\报表\\资金流\\ '+period+' networth.xlsx') 
+                wbk =xlsxwriter.Workbook(u'E:\\work\\报表\\资金流\\ '+period+' networth.xlsx') 
             else:
-                wbk =xlsxwriter.Workbook(u'E:\\工作\\报表\\资金流\\ '+period+' flow.xlsx') 
+                wbk =xlsxwriter.Workbook(u'E:\\work\\报表\\资金流\\ '+period+' flow.xlsx') 
             zw=wbk.add_format({'align':'center','valign':'vcenter','font_size':10,'num_format':'0.00'})
             ZJ_Sheet   = wbk.add_worksheet(u'大单效能')
             for row in xrange(len(amo_index)):
@@ -389,7 +388,7 @@ class ZJ():
         amo_stock=amodata.loc[:,['hq_name','board_name','amo','amopower']].dropna()
         amo_stocknet=amonet.loc[:,['hq_name','board_name','amo','amopower']].dropna()
         
-        #amo_stock.to_csv(u'E:\\工作\\数据备份\\板块资金流\\stockbig'+stime.replace(':','时')+'至'+etime.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
+        #amo_stock.to_csv(u'E:\\work\\数据备份\\板块资金流\\stockbig'+stime.replace(':','时')+'至'+etime.replace(':','时')+'.csv',encoding='gbk',float_format='%.2f')
         
         del amodata['hq_name'],amodata['amopower'],amonet['hq_name'],amonet['amopower']
         
@@ -406,7 +405,6 @@ class ZJ():
         amo_indexnet=amonet.loc[:,['amo','amoper','amopower']].dropna()
         amo_indexnet.reset_index(inplace=True)        
           
-
         amo_indexnet.columns=[u'行业',u'大单净额',u'大单占比',u'效能']
         amo_stocknet.columns=[u'股票',u'行业',u'大单净额',u'效能']
     
@@ -420,18 +418,187 @@ class ZJ():
         
         picBigCashFlow(amo_index,amo_stock,amo_indexnet,amo_stocknet,period,networth=0)
         #picBigCashFlow(amo_indexnet,amo_stocknet,period,networth=1)
-   
+        
+        
+        
+    def plot_board_zjrank(self,sdate,edate):
+        
+        wbk=xlsxwriter.Workbook(u'E:/work/报表/全市场选股/'+sdate+'-'+edate+'监控图表.xlsx')
+        
+        pic_sheet=wbk.add_worksheet('pic')
+        
+        data_sheet=wbk.add_worksheet('data')   
+        
+        data_sheet.hide()
+        
+        #抓取上证指数数据，得到交易日期
+        df_sz=ts.get_k_data('000001',index=True,start=sdate,end=edate)
+        
+        trading_days=df_sz['date']
+        
+        #周期容器，装纳每天数据
+        df_period_rank=pd.DataFrame()
+        
+        for date in trading_days:
+            
+            excel_fname=u'E:/work/报表/全市场选股/F'+date+' 00时00至'+date+' 15时00.xlsx'
+            
+            csv_fname=u'E:/work/报表/全市场选股/F'+date+' 00时00至'+date+' 15时00.csv'
+            
+            if os.path.exists(excel_fname):
+                
+                df_rank=pd.read_excel(excel_fname)
+                
+                df_board_rank=df_rank.iloc[:,[0,1]].dropna()
+                    
+                df_board_rank['date']=date
+                
+                df_board_rank['rank']=range(1,len(df_board_rank)+1)
+                    
+                df_period_rank=df_period_rank.append(df_board_rank)   
+                
+                df_stock_rank=df_rank.iloc[:,3:16]                
+            
+            elif os.path.exists(csv_fname):
+        
+                df_rank=pd.read_csv(csv_fname,encoding='gbk')
+                
+                df_board_rank=df_rank.iloc[:,[1,2]].dropna()
+                    
+                df_board_rank['date']=date
+                
+                df_board_rank['rank']=range(1,len(df_board_rank)+1)
+                    
+                df_period_rank=df_period_rank.append(df_board_rank)   
+                
+                df_stock_rank=df_rank.iloc[:,4:17]                  
+            
+            else:
+                continue
+                 
+            df_stock_rank=df_stock_rank[df_stock_rank[u'综合评分']>9]
+                             
+            df_stock_rank.replace([u'名称',u'板块','大单净额','大单效能','聪明钱','大单总量','综合评分',None],'',inplace=True)    
+
+            tmp_sheet=wbk.add_worksheet(date)      
+            
+            tmp_sheet.write_row(0,0,df_stock_rank.columns)
+
+            for i in xrange(len(df_stock_rank)):
+                
+                tmp_sheet.write_row(i+1,0,df_stock_rank.iloc[i])
+                             
+            print date
+            
+
+        def high_stats(df):
+            
+            high_times=df[(df['grade']>=13)|(df['rank']<=5)]['rank'].count()
+            
+            df['high_times']=high_times
+            
+            return df 
+          
+        df_period_rank.reset_index(inplace=True,drop=True)
+          
+        df_period_rank=df_period_rank.groupby('board_name').apply(high_stats)  
+        
+        df_period_rank.drop(df_period_rank[df_period_rank.high_times==0].index,inplace=True)
+        
+        #df_period_rank.drop('rank',axis=1,inplace=True)
+        
+        df_period_rank.sort_values('high_times',ascending=False,inplace=True)
+        
+        sort_boards=df_period_rank['board_name'].drop_duplicates()
+        
+        df_period_rank.sort_values('date',inplace=True)
+        
+        df_period_rank['grade']=df_period_rank['grade']-12
+        
+        header=list(df_period_rank)
+        
+        name_col=header.index('board_name')
+        
+        date_col=header.index('date')
+        
+        rank_col=header.index('grade')
+        
+        n=0
+        
+        top=0
+        
+        pic_top=0
+        
+        pic_sheet.write_row(0,15,[u'排名',u'板块',u'异动次数']) 
+        
+        for board in sort_boards:
+            
+            df_board_rank=df_period_rank[df_period_rank.board_name==board]
+            
+            data_len=len(df_board_rank)
+            
+            for i in xrange(data_len):
+                
+                data_sheet.write_row(top+i,0,df_board_rank.iloc[i])
+                    
+            pic_sheet.write(pic_top,0,board)
+            
+            pic_sheet.write_row(n+1,15,[str(n),board,df_board_rank['high_times'].iat[-1]])    
+            
+            board_chart=wbk.add_chart({'type': 'line'})
+            
+            board_chart.add_series({
+             'name':['data', top, name_col],
+             'categories':['data', top, date_col, top+data_len, date_col],
+             'values':['data', top, rank_col, top+data_len, rank_col],   
+            })         
+            
+            board_chart.set_x_axis({#'name':u'日期',
+                                #'name_font': {'size': 10, 'bold': True},
+                                'label_position': 'low',
+                                'interval_unit': 2
+                            
+                                })            
+            
+            board_chart.set_size({'width':800,'height':300})
+            
+            pic_sheet.insert_chart(pic_top,1,board_chart)    
+            
+            top+=data_len+1
+            
+            pic_top+=20
+            
+            n+=1
+            
+            print n    
+        
+        wbk.close()
+        
+        return df_period_rank
  
 if __name__=='__main__':
     
-    z=ZJ()
-
+    z=ZJ()   
+    
 #    update=input('Do you want to update?')
 #    if update==True:   
 #        z.tickTradeType('20170703','20170714')
-    #z.tickTradeType('20170802','20170802')
-    z.bigCashflow('2017-08-02 00:00','2017-08-02 15:00')
-    #z.bigCashflow('2017-07-25 00:00','2017-08-02 15:00',networth=1)
+ 
+    sdate='2017-11-20'
+    edate='2017-11-20'
+    
+    #fdate=sdate.replace('-','')
+    
+    #z.tickTradeType(sdate.replace('-',''),edate.replace('-',''))
+    
+    c=colligation.ZH(sdate,edate)
+      
+    #c.buildMinRankForm(factor=True)
+    
+    df_period_rank=z.plot_board_zjrank('2017-11-13','2017-11-20 ')    
+#    
+##    z.bigCashflow(sdate,sdate)
+
     #z.zqAllAmo('20170710','20170718')
     #z.tickCountDay('20170719','20170719')
     #amodata=z.zqAmoDay('2017-07-19','2017-07-19')
@@ -440,5 +607,3 @@ if __name__=='__main__':
     #生成基础数据，并导出到CSV
     #s=z.zqAmoMin('2017-07-06 14:30','2017-07-07 14:59')
     #amodata=z.zqAmoMin('2017-07-06 14:30','2017-07-07 14:59')
-
-    

@@ -111,7 +111,7 @@ class ConvergenceStrategy:
             
             start_date=start_date.date()
             
-            end_date=end_date.date()
+            end_date=datetime.datetime.strptime(end_date,'%Y-%m-%d').date()
         
             df_index_sample = df_index[(df_index['hq_date']>=start_date) & (df_index['hq_date']<=end_date)]
         
@@ -179,12 +179,10 @@ class ConvergenceStrategy:
         
         convergence_oneday['tradeDate']=convergence_oneday.index
         
-        start_date=start_date+datetime.timedelta(30)
+        start_date=datetime.datetime.strptime(start_date,'%Y-%m-%d')++datetime.timedelta(30)
         
         convergence_index_plot(convergence_oneday,df_index,start_date,end_date)
-        
-        
-      
+             
         m =1
                
 #                 
@@ -232,21 +230,22 @@ class ConvergenceStrategy:
 
 if '__main__'==__name__:    
 
-    startyear  = 2016
-    
-    startmonth = 12
-    
-    startday   = 1
-    
-    tstartdate=(datetime.datetime(startyear,startmonth,startday)) 
-    
-    endyear  = 2017
-    
-    endmonth = 6
-    
-    endday   = 3
-    
-    tenddate=(datetime.datetime(endyear,endmonth,endday)) 
+#    startyear  = 2017
+#    
+#    startmonth = 6
+#    
+#    startday   = 1
+#    
+#    tstartdate=(datetime.datetime(startyear,startmonth,startday)) 
+    tstartdate='2017-06-01'
+#    endyear  = 2017
+#    
+#    endmonth = 8
+#    
+#    endday   = 4
+#    
+#    tenddate=(datetime.datetime(endyear,endmonth,endday)) 
+    tenddate='2017-09-01'
     
     cStrategy = ConvergenceStrategy()
     

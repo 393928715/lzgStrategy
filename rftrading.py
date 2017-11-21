@@ -462,4 +462,5 @@ class RF_TradingMonitor:
 
 if '__main__'==__name__:  
     c=RF_TradingMonitor()
-    c.getTrading('2017-07-07','2017-07-14',0)
+    #c.getTrading('2017-07-07','2017-07-14',0)
+    c.dealMarginData('2017-09-06','2017-09-08')
